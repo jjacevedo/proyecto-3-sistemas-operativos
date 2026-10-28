@@ -118,3 +118,38 @@ sys_vmprint(void)
   vmprint(myproc()->pagetable);
   return 0;
 }
+
+// report which of npages pages starting at base were read or written
+// since the last call: bit i of *mask is PTE_A of page base + i*PGSIZE.
+// PTE_A is cleared after reading it. Pages without a valid PTE (lazy
+// pages never touched) report 0; walk() with alloc=0 never maps them.
+uint64
+sys_pgaccess(void)
+{
+  uint64 base, maskaddr, mask = 0;
+  int npages;
+  struct proc *p = myproc();
+
+  argaddr(0, &base);
+  argint(1, &npages);
+  argaddr(2, &maskaddr);
+
+  if (base % PGSIZE != 0)
+    return -1;
+  if (npages < 1 || npages > 64)
+    return -1;
+  if (base >= p->sz || base + (uint64)npages * PGSIZE > p->sz)
+    return -1;
+
+  for (int i = 0; i < npages; i++) {
+    pte_t *pte = walk(p->pagetable, base + (uint64)i * PGSIZE, 0);
+    if (pte != 0 && (*pte & PTE_V) && (*pte & PTE_A)) {
+      mask |= 1UL << i;
+      *pte &= ~PTE_A;
+    }
+  }
+
+  if (copyout(p->pagetable, p->sz, maskaddr, (char *)&mask, sizeof(mask)) < 0)
+    return -1;
+  return 0;
+}
